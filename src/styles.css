@@ -1134,6 +1134,28 @@ body.planet-drag {
   .bottom__hint span {
     display: none;
   }
+
+  /* Di ponsel paragraf panjang membuat satu layar penuh teks dan menenggelamkan
+     planet. Tampilkan ringkasnya saja; isi lengkap tetap ada di panel Summary. */
+  .ch__body p {
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.56;
+    margin-bottom: 8px;
+  }
+
+  .ch__foot {
+    margin-top: 20px;
+    padding-top: 14px;
+    gap: 14px;
+  }
+
+  .ch__meta {
+    gap: 6px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

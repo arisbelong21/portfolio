@@ -1420,6 +1420,9 @@ let dragT = 0
 function PlanetDrag() {
   useEffect(() => {
     let hoverIdx = -1
+    let touchMode: 'pending' | 'rotate' = 'pending'
+    let touchX = 0
+    let touchY = 0
 
     if (import.meta.env.DEV) {
       ;(window as unknown as { __spins?: unknown; __planetHits?: unknown }).__spins = planetSpins
@@ -1453,26 +1456,57 @@ function PlanetDrag() {
       if (dragIndex < 0) document.body.style.cursor = i >= 0 ? 'grab' : ''
     }
 
+    // Sudut diputar dari selisih pointer terakhir: satu jari-jari planet di
+    // layar ≈ setengah putaran.
+    const spin = (x: number, y: number) => {
+      const sp = planetSpins[dragIndex]
+      const h = planetHits[dragIndex]
+      const now = performance.now()
+      const dt = Math.max(0.008, (now - dragT) / 1000)
+      const dx = x - dragX
+      const dy = y - dragY
+      const k = 3.1 / Math.max(h.r, 70)
+      const d = dx * k - dy * k * 0.32
+      sp.target += d
+      sp.vel += (d / dt - sp.vel) * 0.32
+      dragX = x
+      dragY = y
+      dragT = now
+    }
+
     const move = (e: PointerEvent) => {
+      // sentuhan ditangani touchMove: hanya pointer event yang bisa memanggil
+      // preventDefault, jadi scroll halaman tidak ikut tertahan
       if (e.pointerType === 'touch') return
       if (dragIndex >= 0) {
-        const sp = planetSpins[dragIndex]
-        const h = planetHits[dragIndex]
-        const now = performance.now()
-        const dt = Math.max(0.008, (now - dragT) / 1000)
-        const dx = e.clientX - dragX
-        const dy = e.clientY - dragY
-        // satu jari-jari planet di layar ≈ setengah putaran
-        const k = 3.1 / Math.max(h.r, 70)
-        const d = dx * k - dy * k * 0.32
-        sp.target += d
-        sp.vel += (d / dt - sp.vel) * 0.32
-        dragX = e.clientX
-        dragY = e.clientY
-        dragT = now
+        spin(e.clientX, e.clientY)
         return
       }
       setHover(pick(e.clientX, e.clientY))
+    }
+
+    // Di ponsel, jari yang menggeser planet juga menggulir halaman. Gesekan
+    // diputuskan sekali di awal: horizontal (dan sedikit diagonal) = putar,
+    // vertikal = biarkan halaman yang bergulir.
+    const touchMove = (e: TouchEvent) => {
+      if (dragIndex < 0 || e.touches.length !== 1) return
+      const t = e.touches[0]
+      if (touchMode === 'pending') {
+        const adx = Math.abs(t.clientX - touchX)
+        const ady = Math.abs(t.clientY - touchY)
+        if (adx < 9 && ady < 9) return
+        if (adx <= ady * 1.2) {
+          release()
+          return
+        }
+        touchMode = 'rotate'
+        dragX = t.clientX
+        dragY = t.clientY
+        dragT = performance.now()
+        planetGrabSfx()
+      }
+      e.preventDefault()
+      spin(t.clientX, t.clientY)
     }
 
     const down = (e: PointerEvent) => {
@@ -1495,8 +1529,12 @@ function PlanetDrag() {
       dragX = e.clientX
       dragY = e.clientY
       dragT = performance.now()
+      touchMode = 'pending'
+      touchX = e.clientX
+      touchY = e.clientY
       document.body.classList.add('planet-drag')
-      planetGrabSfx()
+      // bunyi genggam ditunda sampai jelas ini gesekan memutar, bukan gulir
+      if (e.pointerType !== 'touch') planetGrabSfx()
     }
 
     const release = () => {
@@ -1513,12 +1551,14 @@ function PlanetDrag() {
     window.addEventListener('pointerdown', down)
     window.addEventListener('pointerup', release)
     window.addEventListener('pointercancel', release)
+    window.addEventListener('touchmove', touchMove, { passive: false })
     window.addEventListener('blur', release)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerdown', down)
       window.removeEventListener('pointerup', release)
       window.removeEventListener('pointercancel', release)
+      window.removeEventListener('touchmove', touchMove)
       window.removeEventListener('blur', release)
       dragIndex = -1
       document.body.classList.remove('planet-drag')
