@@ -294,22 +294,25 @@ function softNote(freq: number, gain: number, dur: number, pan: number, wet: num
   osc.stop(t + dur + 0.05)
 }
 
-function airSwell(gain: number, dur: number) {
+function airSwell(gain: number, dur: number, peakAt = 0.62) {
   if (!ctx || !master) return
   const ac = ctx
   const t = ac.currentTime
+  const peak = Math.min(Math.max(peakAt, 0.04), 0.95)
   const src = ac.createBufferSource()
   src.buffer = brownNoise(ac, 26)
 
   const bp = ac.createBiquadFilter()
   bp.type = 'bandpass'
-  bp.frequency.setValueAtTime(220, t)
-  bp.frequency.exponentialRampToValueAtTime(760, t + dur * 0.75)
+  // 300→980 Hz: speaker ponsel mulai terdengar di rentang ini; 220→760
+  // membuat "angin" baru jelas saat sweep hampir selesai.
+  bp.frequency.setValueAtTime(300, t)
+  bp.frequency.exponentialRampToValueAtTime(980, t + dur * peak)
   bp.Q.value = 0.8
 
   const g = ac.createGain()
   g.gain.setValueAtTime(MIN_GAIN, t)
-  g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.62)
+  g.gain.exponentialRampToValueAtTime(gain, t + dur * peak)
   g.gain.exponentialRampToValueAtTime(MIN_GAIN, t + dur)
 
   src.connect(bp)
@@ -368,10 +371,36 @@ export function sfxEnabled(): boolean {
   return enabled
 }
 
-export function ensureSfx() {
-  if (!enabled) return
+/**
+ * Pastikan audio benar-benar berbunyi sebelum intro dimulai. Di ponsel,
+ * AudioContext bisa masih `suspended` beberapa ratus ms setelah gestur;
+ * kalau animasi dilepas duluan, angin baru terdengar setelah perjalanan
+ * selesai. Promise ini selesai saat context `running` — atau setelah 400 ms,
+ * supaya animasi tidak pernah tertahan karena audio.
+ */
+export function ensureSfx(): Promise<void> {
+  if (!enabled) return Promise.resolve()
   boot()
-  if (ctx?.state === 'suspended') void ctx.resume()
+  const ac = ctx
+  if (!ac || ac.state === 'running') return Promise.resolve()
+
+  return new Promise((resolve) => {
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      ac.removeEventListener('statechange', onChange)
+      resolve()
+    }
+    const onChange = () => {
+      if (ac.state === 'running') finish()
+    }
+    ac.addEventListener('statechange', onChange)
+    void ac.resume().then(() => {
+      if (ac.state === 'running') finish()
+    })
+    window.setTimeout(finish, 400)
+  })
 }
 
 export function setSfxEnabled(value: boolean) {
@@ -566,7 +595,12 @@ export function introSfx(duration: number) {
   const ac = ctx
   const t = ac.currentTime
 
-  airSwell(0.05, duration * 0.92)
+  // Dua lapis: satu "tarikan" pendek tepat setelah jari menyentuh layar
+  // (tanpa ini, wind baru terdengar saat sweep hampir selesai), lalu napas
+  // utama yang puncaknya di 35% durasi — sebaris dengan puncak kecepatan
+  // kamera (0.2–0.62), bukan di ujung perlambatan.
+  airSwell(0.03, 1.15, 0.3)
+  airSwell(0.05, duration * 0.95, 0.35)
 
   // nada rendah yang naik: rasa "bergerak", bukan "berisik"
   const rise = ac.createOscillator()

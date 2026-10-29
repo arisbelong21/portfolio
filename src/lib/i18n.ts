@@ -103,7 +103,7 @@ const en = {
   stoneHint: 'Click the stone to read',
   scrollDiscover: 'Scroll down to discover.',
   clickExplore: 'Click to explore',
-  motion: 'Motion reduced by your system — enable',
+  motion: 'Motion reduced by your system — tap for full motion',
   stages: {
     booting: 'booting',
     type: 'type ready',
@@ -146,7 +146,7 @@ export const ui: Record<Lang, UI> = {
     stoneHint: 'Klik batu untuk membaca',
     scrollDiscover: 'Gulir ke bawah untuk menjelajah.',
     clickExplore: 'Klik untuk menjelajah',
-    motion: 'Gerak diminimalkan oleh sistem — aktifkan',
+    motion: 'Gerak diminimalkan oleh sistem — ketuk untuk gerak penuh',
     stages: {
       booting: 'menyiapkan',
       type: 'font siap',

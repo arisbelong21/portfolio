@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Overlay from './components/Overlay'
 import { copy, type Lang } from './content'
 import { chapterCount, unitsTotal } from './lib/journey'
@@ -57,7 +57,22 @@ export default function App() {
   const t = ui[lang]
 
   const [reduced, setReduced] = useState(false)
-  const [forceMotion, setForceMotion] = useState(false)
+  const [forceMotion, setForceMotion] = useState(() => {
+    try {
+      return window.localStorage.getItem('portfolio:motion') === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const enableMotion = () => {
+    setForceMotion(true)
+    try {
+      window.localStorage.setItem('portfolio:motion', '1')
+    } catch {
+      /* mode privat: pilihan hanya berlaku sesi ini */
+    }
+  }
 
   const [sceneReady, setSceneReady] = useState(!webgl)
   const [progress, setProgress] = useState(8)
@@ -141,11 +156,17 @@ export default function App() {
   }, [ready])
 
   /* ---- gerbang masuk: gestur pertama = nyalakan audio + mulai perjalanan ---- */
+  const entering = useRef(false)
   const enter = useCallback(() => {
+    if (entering.current) return
+    entering.current = true
     setEntered(true)
-    ensureSfx()
-    startIntro(instant)
-    if (!instant) introSfx(INTRO_DURATION)
+    // Tunggu audio siap dulu (maks 400 ms): kalau animasi dilepas saat
+    // context masih suspended, wind baru berbunyi setelah warp selesai.
+    void ensureSfx().then(() => {
+      startIntro(instant)
+      if (!instant) introSfx(INTRO_DURATION)
+    })
   }, [instant])
 
   useEffect(() => {
@@ -310,7 +331,7 @@ export default function App() {
       <Loader progress={progress} label={t.stages[stage]} done={ready} name={c.name} />
 
       {reduced && !forceMotion && (
-        <button className="motion" type="button" onClick={() => setForceMotion(true)}>
+        <button className="motion" type="button" onClick={enableMotion}>
           {t.motion}
         </button>
       )}
