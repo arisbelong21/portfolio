@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-basetest/
+preview/
+*.zip
+.env
+.env.*
+.DS_Store

@@ -1,0 +1,1770 @@
+/* ===========================================================================
+   Satu halaman, satu dunia. Tidak ada layout dokumen biasa di sini:
+   kanvas 3D fixed di belakang, teks fixed di depan, tinggi halaman cuma
+   "track" kosong yang menentukan panjang perjalanan kamera.
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* Malam beku ala igloo.inc: dasar biru-hampir-hitam, tinta putih es,
+     aksen mint-teal aurora, dan pasir dingin untuk angka. */
+  --bg: #05080e;
+  --ink: #eef3f6;
+  --ink-soft: #b2bcc4;
+  --dim: #747f88;
+  --line: rgba(238, 243, 246, 0.16);
+  --line-soft: rgba(238, 243, 246, 0.08);
+  --mint: #8fe6d0;
+  --sand: #cdd6dc;
+
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --pad: clamp(20px, 4.2vw, 64px);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+}
+
+html::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 300;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--mint);
+  color: #05080e;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 1px solid var(--mint);
+  outline-offset: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Lapisan: kanvas (0) · teks (2) · chrome (4) · progress (5) · loader (60)
+--------------------------------------------------------------------------- */
+
+.stage {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 0;
+  /* kanvas menerima pointer: batu cerita harus bisa diklik/di-hover.
+     Teks di atasnya tetap bisa diseleksi lewat .ch__inner. */
+  pointer-events: auto;
+  background: var(--bg);
+}
+
+.stage--flat {
+  pointer-events: none;
+  background:
+    radial-gradient(60% 60% at 62% 30%, #0d1a2e 0%, #060a12 60%, #04060c 100%);
+}
+
+/* Saat planet dipegang: jangan sampai drag menyeleksi teks di atas kanvas. */
+body.planet-drag {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Lapisan warna tipis di atas kanvas: menyatukan render 3D dengan tipografi,
+   dan menjaga tepi layar tetap gelap supaya teks di sudut tidak tenggelam.
+   Hijau mint cuma muncul sedikit di kanan-atas; sisanya cahaya dingin + debu
+   hangat, supaya planet tidak terlihat dicelup satu warna. */
+.grade {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      120% 90% at 76% 14%,
+      rgba(143, 230, 208, 0.032) 0%,
+      rgba(143, 230, 208, 0) 52%
+    ),
+    radial-gradient(
+      100% 85% at 14% 86%,
+      rgba(205, 214, 220, 0.045) 0%,
+      rgba(205, 214, 220, 0) 58%
+    ),
+    radial-gradient(
+      120% 100% at 50% 50%,
+      rgba(4, 6, 12, 0) 42%,
+      rgba(4, 6, 12, 0.42) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(4, 6, 12, 0.38) 0%,
+      rgba(4, 6, 12, 0) 26%,
+      rgba(4, 6, 12, 0) 70%,
+      rgba(4, 6, 12, 0.26) 100%
+    );
+}
+
+.track {
+  position: relative;
+  width: 100%;
+  pointer-events: none;
+}
+
+.ui {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ui button,
+.ui a {
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Bab
+--------------------------------------------------------------------------- */
+
+.ch {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--pad);
+  padding-top: clamp(88px, 14vh, 150px);
+  padding-bottom: clamp(74px, 11vh, 116px);
+  opacity: 0;
+  visibility: hidden;
+  will-change: opacity;
+  /* klik diteruskan ke kanvas; hanya blok teks yang menangkap pointer
+     (supaya bisa diseleksi tanpa menutupi batu 3D di kanan) */
+  pointer-events: none;
+}
+
+/* scrim tipis: menjaga teks tetap terbaca tanpa menutupi gambar 3D */
+.ch::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* Kotak scrim selalu selebar-penuh layar: kalau tingginya dipotong (mis.
+     66% dari bawah), tepi kotaknya terlihat sebagai garis horizontal tipis
+     yang memotong planet. Gradiennya yang memudar, bukan kotaknya. */
+  background:
+    linear-gradient(
+      to top,
+      rgba(5, 8, 14, 0.92) 0%,
+      rgba(5, 8, 14, 0.5) 30%,
+      rgba(5, 8, 14, 0) 66%
+    ),
+    /* kolom teks ada di kiri, subjek 3D di kanan: gelapkan hanya sisi kiri
+       lewat elips, supaya tidak ada tepi lurus lagi */
+    radial-gradient(
+      90% 78% at 0% 100%,
+      rgba(5, 8, 14, 0.62) 0%,
+      rgba(5, 8, 14, 0) 72%
+    );
+}
+
+.ch__inner {
+  width: 100%;
+  max-width: min(1080px, 100%);
+  text-shadow: 0 2px 40px rgba(2, 4, 9, 0.9);
+  pointer-events: auto;
+}
+
+.ch__kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 clamp(16px, 2.4vh, 30px);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  will-change: opacity, transform;
+}
+
+.ch__kicker span {
+  color: var(--sand);
+}
+
+.ch__kicker i {
+  display: block;
+  width: 30px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line), rgba(238, 243, 246, 0.03));
+}
+
+.ch__title {
+  margin: 0;
+  font-size: clamp(40px, min(7.2vw, 10.5vh), 118px);
+  line-height: 0.9;
+  font-weight: 300;
+  letter-spacing: -0.045em;
+}
+
+.ch--intro .ch__title {
+  font-size: clamp(44px, min(8.4vw, 12vh), 134px);
+}
+
+/* Manifesto: paragraf + tabel fakta + capabilities membuat bab ini paling
+   tinggi. Judulnya dikecilkan sedikit dan jarak vertikalnya dirapatkan supaya
+   isinya tidak naik menembus header di layar 900px. */
+.ch--studio .ch__title {
+  font-size: clamp(36px, min(5.4vw, 7.3vh), 92px);
+}
+
+.ch--studio .ch__kicker {
+  margin-bottom: clamp(12px, 1.8vh, 22px);
+}
+
+.ch--studio .ch__foot {
+  margin-top: clamp(18px, 2.4vh, 30px);
+  padding-top: clamp(12px, 1.6vh, 18px);
+}
+
+.ch--studio .caps {
+  margin-top: 20px;
+  padding-top: 16px;
+}
+
+/* Layar pendek (laptop 800–860px): rapatkan bab Manifesto supaya judulnya
+   tidak naik menembus header. */
+@media (max-height: 860px) {
+  .ch--studio .ch__title {
+    font-size: clamp(32px, min(4.8vw, 6.4vh), 78px);
+  }
+
+  .ch--studio .ch__body {
+    font-size: 14.5px;
+  }
+
+  .ch--studio .caps {
+    margin-top: 14px;
+    padding-top: 12px;
+  }
+
+  .ch--studio .caps__list li {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .ch--studio .caps__list {
+    gap: 4px;
+  }
+}
+
+/* Manifesto adalah bab tertinggi. Di layar sempit/pendek isinya tidak muat
+   dalam satu layar, jadi bab ini boleh digulir sendiri (bab lain tetap
+   mengikuti scroll halaman seperti biasa). */
+@media (max-width: 900px), (max-height: 700px) {
+  .ch--studio {
+    align-items: flex-start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .ch--studio .ch__inner {
+    padding-bottom: 40px;
+  }
+}
+
+.ch--studio .caps__title {
+  margin-bottom: 12px;
+}
+
+.ch--studio .caps__group {
+  margin-bottom: 6px;
+}
+
+.ch--studio .caps__list {
+  gap: 4px;
+}
+
+.ch__line {
+  display: block;
+  overflow: hidden;
+  /* ruang ekstra di atas untuk huruf yang terdorong "air", tanpa menggeser
+     posisi barisnya */
+  padding-top: 0.24em;
+  margin-top: -0.24em;
+  padding-bottom: 0.1em;
+  margin-bottom: -0.1em;
+}
+
+.ch__line > span {
+  display: block;
+  will-change: transform;
+}
+
+/* Huruf untuk efek air (components/Liquid.tsx + lib/water.ts). inline-block
+   supaya bisa ditransformasi sendiri; kata tetap utuh supaya baris tidak
+   patah di tengah kata. */
+.lq {
+  display: inline-block;
+  font-kerning: none;
+}
+
+.lq-c {
+  display: inline-block;
+}
+
+/* Mengetik per karakter (components/Overlay.tsx): selama .is-typing aktif,
+   huruf yang belum .is-in masih kosong; yang sudah menyala memudar masuk
+   dalam 0.16s — cukup cepat untuk terasa "dicetak", tanpa kedip. Hanya
+   opasitas yang disentuh: transform .lq-c dipakai kursor air. */
+.ch.is-typing .lq-c {
+  opacity: 0;
+}
+
+.ch.is-typing .lq-c.is-in {
+  opacity: 1;
+  transition: opacity 0.16s linear;
+}
+
+.ch__foot {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: clamp(24px, 5vw, 84px);
+  margin-top: clamp(22px, 3.4vh, 44px);
+  padding-top: clamp(14px, 2.2vh, 26px);
+}
+
+/* garis pemisah yang memudar ke kanan — lebih ringan dari border penuh */
+.ch__foot::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(143, 230, 208, 0.34) 0%,
+    rgba(238, 243, 246, 0.1) 32%,
+    rgba(238, 243, 246, 0.02) 100%
+  );
+}
+
+.ch__body {
+  will-change: opacity, transform;
+}
+
+/* Teks bisa jatuh di atas planet yang terang; bayangan gelap tipis menjaga
+   kontrasnya tanpa mengubah tampilan di latar yang sudah gelap. */
+.ch__body,
+.ch__meta {
+  text-shadow:
+    0 1px 2px rgba(3, 6, 11, 0.6),
+    0 0 22px rgba(3, 6, 11, 0.75);
+}
+
+.ch__body p {
+  margin: 0 0 10px;
+  max-width: 46ch;
+  font-size: clamp(13.5px, 1.02vw, 16.5px);
+  line-height: 1.62;
+  color: var(--ink-soft);
+}
+
+.ch__body p:last-of-type {
+  margin-bottom: 0;
+}
+
+/* Tombol kontak: kaca, bukan tombol penuh warna. Satu-satunya elemen yang
+   "timbul" di halaman ini, jadi ia yang menarik mata di bab terakhir. */
+.ch__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: clamp(16px, 2.6vh, 30px);
+  padding: 12px 22px;
+  border: 1px solid rgba(238, 243, 246, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(238, 243, 246, 0.1) 0%,
+    rgba(238, 243, 246, 0.028) 100%
+  );
+  backdrop-filter: blur(14px) saturate(125%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 20px 44px -26px rgba(0, 0, 0, 0.95);
+  font-size: clamp(15px, 1.7vw, 22px);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  transition: color 0.35s var(--ease), border-color 0.35s var(--ease),
+    background 0.35s var(--ease), transform 0.35s var(--ease);
+}
+
+.ch__cta:hover {
+  color: var(--ink);
+  border-color: rgba(143, 230, 208, 0.5);
+  background: linear-gradient(
+    180deg,
+    rgba(143, 230, 208, 0.14) 0%,
+    rgba(143, 230, 208, 0.04) 100%
+  );
+  transform: translateY(-1px);
+}
+
+.ch__cta span {
+  font-size: 0.9em;
+  opacity: 0.62;
+}
+
+.ch__link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 18px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mint);
+  border-bottom: 1px solid rgba(143, 230, 208, 0.3);
+  padding-bottom: 5px;
+}
+
+.ch__link span {
+  font-size: 0.62em;
+  transform: translateY(-0.18em);
+}
+
+/* Di bab karya ada dua aksi berdampingan (ringkasan + tautan proyek). Tautan
+   turun ke barisnya sendiri supaya tulisannya tidak menempel jadi satu. */
+.ch__body .ch__link {
+  display: flex;
+  width: fit-content;
+}
+
+.ch__link:hover {
+  border-color: var(--mint);
+}
+
+.ch__meta {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  margin: 0;
+  will-change: opacity, transform;
+}
+
+.ch__row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.ch__row dt {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.ch__row dd {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  /* break-word, bukan anywhere: "(GMT+7)" dan email tetap utuh */
+  overflow-wrap: break-word;
+}
+
+/* ---------------------------------------------------------------------------
+   Chrome: brand, nav, rail, progress
+--------------------------------------------------------------------------- */
+
+.top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: var(--pad);
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  pointer-events: auto;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: linear-gradient(
+    160deg,
+    rgba(238, 243, 246, 0.08) 0%,
+    rgba(238, 243, 246, 0.01) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--mint);
+  transition: border-color 0.35s var(--ease), background 0.35s var(--ease);
+}
+
+.brand:hover .brand__mark {
+  border-color: rgba(143, 230, 208, 0.5);
+  background: rgba(143, 230, 208, 0.08);
+}
+
+.brand__text strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.brand__text em {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.top__right {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(16px, 2.6vw, 38px);
+}
+
+.nav {
+  display: flex;
+  gap: clamp(14px, 2.4vw, 34px);
+  padding-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.nav button {
+  position: relative;
+  padding-bottom: 4px;
+  transition: color 0.3s var(--ease);
+}
+
+.nav button::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 1px;
+  background: var(--mint);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 0.45s var(--ease);
+}
+
+.nav button:hover {
+  color: var(--ink);
+}
+
+.nav button:hover::after {
+  transform: scaleX(1);
+}
+
+/* pemilih bahasa: dua huruf, sengaja sekecil mungkin supaya tidak bersaing
+   dengan navigasi, tapi tetap jelas bisa diklik */
+.sound {
+  position: relative;
+  padding: 4px 5px;
+  margin-right: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  transition: color 0.3s var(--ease);
+}
+
+.sound:hover {
+  color: var(--ink-soft);
+}
+
+.sound.is-on {
+  color: var(--ink);
+}
+
+.sound.is-on::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 0;
+  height: 1px;
+  background: var(--mint);
+}
+
+/* gerbang masuk: undangan satu gestur (sekalian membuka kunci audio browser).
+   Ditengah layar, tipis, tidak bersaing dengan scene di belakangnya. */
+.enter {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 18px;
+  background: radial-gradient(ellipse at center, rgba(2, 4, 9, 0.10), rgba(2, 4, 9, 0.55));
+  cursor: pointer;
+  animation: enter-fade 0.9s var(--ease) both;
+}
+
+.enter__ring {
+  width: 74px;
+  height: 74px;
+  border: 1px solid rgba(150, 220, 205, 0.5);
+  border-radius: 50%;
+  position: relative;
+  animation: enter-pulse 2.6s var(--ease) infinite;
+}
+
+.enter__ring::after {
+  content: '';
+  position: absolute;
+  inset: 26px;
+  border-radius: 50%;
+  background: var(--mint);
+  opacity: 0.85;
+}
+
+.enter__label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes enter-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
+.lang {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.lang button {
+  position: relative;
+  padding: 4px 5px;
+  color: var(--dim);
+  transition: color 0.3s var(--ease);
+}
+
+.lang button:hover {
+  color: var(--ink-soft);
+}
+
+.lang button.is-on {
+  color: var(--ink);
+}
+
+.lang button.is-on::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 0;
+  height: 1px;
+  background: var(--mint);
+}
+
+.rail {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.rail__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.rail__num {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  opacity: 0;
+  transition: opacity 0.35s var(--ease), color 0.35s var(--ease);
+}
+
+.rail__tick {
+  display: block;
+  width: 12px;
+  height: 1px;
+  background: var(--dim);
+  opacity: 0.45;
+  transition: width 0.5s var(--ease), background 0.4s var(--ease), opacity 0.4s var(--ease);
+}
+
+.rail__item:hover .rail__num,
+.rail__item.is-active .rail__num {
+  opacity: 1;
+}
+
+.rail__item.is-active .rail__num {
+  color: var(--mint);
+}
+
+.rail__item.is-active .rail__tick {
+  width: 30px;
+  background: var(--mint);
+  opacity: 1;
+  box-shadow: 0 0 10px rgba(143, 230, 208, 0.5);
+}
+
+.bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: var(--pad);
+  padding-top: 0;
+  padding-bottom: calc(var(--pad) * 0.62);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+.bottom__hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+  transition: opacity 0.4s linear;
+}
+
+.bottom__hint i {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 1px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.bottom__hint i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--mint);
+  transform: translateX(-100%);
+  animation: sweep 2.6s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.bottom__status {
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bottom__count {
+  display: flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.bottom__total {
+  color: var(--dim);
+}
+
+.progress {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  height: 1px;
+  background: var(--line-soft);
+}
+
+.progress__fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(143, 230, 208, 0.35) 0%, var(--mint) 100%);
+  box-shadow: 0 0 12px rgba(143, 230, 208, 0.45);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  will-change: transform;
+}
+
+/* ---------------------------------------------------------------------------
+   Preloader
+--------------------------------------------------------------------------- */
+
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: var(--pad);
+  padding-bottom: clamp(28px, 5vh, 60px);
+  background: var(--bg);
+  transition: transform 1.15s cubic-bezier(0.76, 0, 0.24, 1);
+  will-change: transform;
+}
+
+.loader--done {
+  transform: translateY(-101%);
+  pointer-events: none;
+}
+
+.loader__inner {
+  width: 100%;
+}
+
+.loader__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.loader__count {
+  margin: clamp(14px, 3vh, 30px) 0 clamp(16px, 2.6vh, 28px);
+  font-size: clamp(64px, 12vw, 152px);
+  font-weight: 300;
+  line-height: 0.86;
+  letter-spacing: -0.055em;
+  font-variant-numeric: tabular-nums;
+  color: var(--sand);
+}
+
+.loader__bar {
+  height: 1px;
+  background: var(--line);
+}
+
+.loader__bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, rgba(143, 230, 208, 0.4) 0%, var(--mint) 100%);
+  box-shadow: 0 0 14px rgba(143, 230, 208, 0.55);
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  transition: transform 0.6s var(--ease);
+}
+
+/* ---------------------------------------------------------------------------
+   Lain-lain
+--------------------------------------------------------------------------- */
+
+.skip {
+  position: fixed;
+  top: -100px;
+  left: var(--pad);
+  z-index: 70;
+  padding: 10px 16px;
+  background: var(--mint);
+  color: #05080e;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: auto;
+  transition: top 0.2s var(--ease);
+}
+
+.skip:focus {
+  top: 16px;
+}
+
+.motion {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid rgba(143, 230, 208, 0.32);
+  background: rgba(8, 9, 12, 0.72);
+  backdrop-filter: blur(10px);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mint);
+  transition: background 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+
+.motion:hover {
+  background: rgba(143, 230, 208, 0.1);
+  border-color: var(--mint);
+}
+
+.perf {
+  position: fixed;
+  left: var(--pad);
+  bottom: 52px;
+  z-index: 6;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Responsif
+--------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .ch {
+    padding-bottom: clamp(70px, 10vh, 96px);
+  }
+
+  .ch__foot {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .ch__row {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  /* di layar sempit, daftar meta dipotong supaya tidak menabrak chrome.
+     Baris 1–7 = fakta + grup "Membangun"; sisanya disembunyikan. */
+  .ch__row:nth-child(n + 8) {
+    display: none;
+  }
+
+  .ch__body p:nth-of-type(n + 3) {
+    display: none;
+  }
+
+  .rail {
+    display: none;
+  }
+
+  .bottom__status {
+    display: none;
+  }
+
+  .bottom {
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 560px) {
+  /* layar sempit: monogram saja — nama panjang + 3 menu + pemilih bahasa
+     tidak akan muat dalam satu baris */
+  .brand__text {
+    display: none;
+  }
+
+  .top {
+    gap: 12px;
+  }
+
+  .nav {
+    gap: 12px;
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+  }
+
+  .lang {
+    font-size: 9.5px;
+  }
+
+  /* di ponsel teks duduk tepat di atas planet/matahari yang terang, jadi
+     scrim bawah dinaikkan sedikit supaya kontras paragraf tetap aman */
+  .ch::before {
+    background:
+      linear-gradient(
+        to top,
+        rgba(5, 8, 14, 0.95) 0%,
+        rgba(5, 8, 14, 0.62) 34%,
+        rgba(5, 8, 14, 0) 74%
+      ),
+      radial-gradient(
+        100% 80% at 0% 100%,
+        rgba(5, 8, 14, 0.7) 0%,
+        rgba(5, 8, 14, 0) 74%
+      );
+  }
+
+  /* di layar sentuh, dua huruf itu terlalu kecil untuk ditekan — tambah
+     bidang sentuh tanpa mengubah ukuran hurufnya */
+  .lang button {
+    padding: 7px 7px;
+  }
+
+  .ch__title {
+    letter-spacing: -0.035em;
+  }
+
+  .ch__cta {
+    padding: 10px 18px;
+    gap: 10px;
+  }
+
+  .ch__row:nth-child(n + 5) {
+    display: none;
+  }
+
+  .bottom__hint span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader {
+    transition-duration: 0.35s;
+  }
+
+  .bottom__hint i::after {
+    animation: none;
+    transform: translateX(0);
+    opacity: 0.6;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Adaptasi igloo.inc: label garis-miring, grid skill, panel ringkasan        */
+/* ------------------------------------------------------------------------- */
+
+/* tombol "/// Baca ringkasan" di bawah isi tiap project */
+.ch__summary {
+  margin-top: 18px;
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mint);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.3s var(--ease), color 0.3s var(--ease);
+}
+
+.ch__summary:hover {
+  color: var(--ink);
+  border-bottom-color: var(--mint);
+}
+
+/* dua CTA di bab pembuka: "Jelajahi karya" + "Hubungi saya" */
+.ch__ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-top: 20px;
+}
+
+.ch__cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.3s var(--ease), background 0.3s var(--ease),
+    color 0.3s var(--ease);
+}
+
+.ch__cta-btn:hover {
+  border-color: var(--mint);
+  color: var(--mint);
+}
+
+.ch__cta-btn--solid {
+  background: rgba(143, 230, 208, 0.12);
+  border-color: rgba(143, 230, 208, 0.45);
+  color: var(--mint);
+}
+
+.ch__cta-btn--solid:hover {
+  background: rgba(143, 230, 208, 0.2);
+  color: var(--ink);
+}
+
+.ch__cta-btn span {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+/* grid kapabilitas (skill) ala igloo: empat kolom mono */
+.caps {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.caps__title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 16px;
+}
+
+.caps__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px 26px;
+}
+
+@media (max-width: 1100px) {
+  .caps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.caps__group {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.caps__list {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.caps__list li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dim);
+  position: relative;
+  padding-left: 12px;
+}
+
+.caps__list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 4px;
+  height: 1px;
+  background: var(--line);
+}
+
+/* panel ringkasan interior (signature igloo) */
+.panel {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.panel__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(2, 4, 9, 0.62);
+  backdrop-filter: blur(6px);
+  animation: panel-fade 0.4s var(--ease) both;
+}
+
+.panel__sheet {
+  position: relative;
+  width: min(640px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 30px 32px 32px;
+  background: rgba(8, 12, 18, 0.92);
+  border: 1px solid var(--line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  animation: panel-rise 0.5s var(--ease) both;
+  pointer-events: auto;
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.panel__kicker,
+.panel__sub,
+.panel__close {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.panel__close {
+  color: var(--ink-soft);
+  transition: color 0.3s var(--ease);
+}
+
+.panel__close:hover {
+  color: var(--ink);
+}
+
+.panel__title {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: var(--ink);
+}
+
+.panel__role {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+}
+
+/* Galeri screenshot produk: satu bingkai besar + strip thumbnail. Rasio tiap
+   gambar diambil dari datanya (inline aspect-ratio) supaya antarmuka di dalam
+   tidak terpotong dan ruangnya sudah dipesan sebelum gambar selesai dimuat. */
+.panel__shots {
+  margin-top: 18px;
+}
+
+.panel__shot {
+  margin: 0;
+  padding: 6px;
+  border: 1px solid rgba(143, 230, 208, 0.22);
+  border-radius: 10px;
+  background: #04070c;
+  box-shadow: 0 18px 50px -30px rgba(143, 230, 208, 0.35);
+}
+
+.panel__shot img {
+  display: block;
+  width: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #04070c;
+}
+
+.panel__shotkicker {
+  margin: 0 0 8px;
+  letter-spacing: 0.14em;
+}
+
+.panel__thumbs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.panel__thumb {
+  flex: 0 0 auto;
+  height: 60px;
+  padding: 3px;
+  border: 1px solid rgba(143, 230, 208, 0.16);
+  border-radius: 6px;
+  background: rgba(4, 7, 12, 0.7);
+  opacity: 0.5;
+  cursor: pointer;
+  transition:
+    opacity 0.2s var(--ease),
+    border-color 0.2s var(--ease);
+}
+
+.panel__thumb img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.panel__thumb:hover,
+.panel__thumb:focus-visible {
+  opacity: 1;
+}
+
+.panel__thumb.is-on {
+  opacity: 1;
+  border-color: rgba(143, 230, 208, 0.55);
+}
+
+.panel__thumb:focus-visible {
+  outline-offset: 2px;
+}
+
+.panel__body {
+  margin-top: 20px;
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--ink-soft);
+}
+
+/* chip "karya utama" + status rilis — berdampingan di bawah judul panel */
+.panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.panel__flag,
+.panel__status {
+  display: inline-block;
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.panel__flag {
+  color: var(--mint);
+  border: 1px solid rgba(143, 230, 208, 0.35);
+  background: rgba(143, 230, 208, 0.08);
+}
+
+.panel__status {
+  color: var(--dim);
+  border: 1px solid rgba(238, 243, 246, 0.16);
+  background: rgba(238, 243, 246, 0.04);
+}
+
+/* narasi terstruktur: masalah → yang dibangun → cara kerja → hasil */
+.panel__story {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  gap: 14px;
+}
+
+.panel__row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.panel__row dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-top: 3px;
+}
+
+.panel__row dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.58;
+  color: var(--ink-soft);
+}
+
+.panel__foot {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.panel__col {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.panel__tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.panel__tags li {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  padding: 4px 8px;
+  border: 1px solid var(--line-soft);
+}
+
+.panel__link {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--mint);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.3s var(--ease);
+  justify-self: start;
+}
+
+.panel__link:hover {
+  border-bottom-color: var(--mint);
+}
+
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 26px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .caps__grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .panel__sheet {
+    padding: 24px 22px 26px;
+  }
+
+  .panel__foot {
+    grid-template-columns: 1fr;
+  }
+
+  .panel__row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .panel__thumbs {
+    gap: 4px;
+  }
+
+  .ch__cta-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel__backdrop,
+  .panel__sheet {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Kursor air: lensa + panel "Manifesto" (deskripsi diri lewat batu)          */
+/* ------------------------------------------------------------------------- */
+
+/* Lensa tipis yang mengikuti kursor di atas teks. Sengaja tanpa
+   backdrop-filter: blur pada kotak bergerak menghasilkan kotak kabur yang
+   terlihat seperti artefak. Cukup cahaya radial + cincin tipis — efek airnya
+   datang dari huruf yang bergerak (lib/water.ts). */
+.lens {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  width: 230px;
+  height: 230px;
+  margin: -115px 0 0 -115px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      closest-side,
+      rgba(190, 238, 255, 0.075) 0%,
+      rgba(120, 190, 220, 0.03) 46%,
+      rgba(120, 190, 220, 0) 70%
+    ),
+    radial-gradient(
+      closest-side,
+      rgba(190, 238, 255, 0) 55%,
+      rgba(190, 238, 255, 0.065) 63%,
+      rgba(190, 238, 255, 0) 72%
+    );
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+.panel--story .panel__sheet {
+  width: min(780px, 100%);
+  max-height: 86vh;
+  /* Manifesto lebih panjang dari layar: ujung bawah dilunakkan, bukan dipotong
+     di tengah baris. Padding bawah memberi ruang agar baris terakhir tetap utuh
+     saat sudah di-scroll sampai habis. */
+  padding-bottom: 72px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 84px), transparent calc(100% - 4px));
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 84px), transparent calc(100% - 4px));
+}
+
+.story__body p + p {
+  margin-top: 14px;
+}
+
+.story__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 26px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.story__fact dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.story__fact dd {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.story__caps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px 26px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.story__cap .panel__sub {
+  display: block;
+}
+
+.story__list {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.story__list li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+.story__list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.64em;
+  width: 4px;
+  height: 1px;
+  background: var(--line);
+}
+
+.story__links {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.story__links .panel__link {
+  justify-self: start;
+}
+
+@media (max-width: 640px) {
+  .story__facts,
+  .story__caps {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* Tirai singkat saat perjalanan dimulai: menutup "potongan" antara posisi
+   kamera awal dan titik start kurva intro, lalu membuka saat kamera sudah
+   melaju. Tanpa ini, pergantian pertama terlihat sebagai lompatan. */
+.warpfade {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  background: #020409;
+  animation: warpfade 0.9s var(--ease) both;
+}
+
+@keyframes warpfade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lens {
+    display: none;
+  }
+
+  /* gerak dikurangi: teks tidak diketik, langsung terbaca */
+  .ch.is-typing .lq-c {
+    opacity: 1;
+    transition: none;
+  }
+
+  .lq,
+  .lq-c {
+    display: inline;
+  }
+}
