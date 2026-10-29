@@ -13,6 +13,12 @@ import { INTRO_DURATION, startIntro, tickIntro, warp } from './lib/intro'
 // WebGL menyusul. Ini yang membuat first paint tetap cepat.
 const JourneyCanvas = lazy(() => import('./scene/JourneyCanvas'))
 
+// Momentum gesekan di layar sentuh jauh lebih panjang daripada satu langkah
+// roda mouse: satu flick bisa melewati tiga bab. Jarak tiap bab dinaikkan di
+// perangkat sentuh supaya satu gesekan hanya maju sekitar satu bab.
+const PER_CHAPTER_VH =
+  typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches ? 160 : 100
+
 type StageKey = keyof (typeof ui)['en']['stages']
 
 function Loader({
@@ -286,7 +292,11 @@ export default function App() {
       <div className="grade" aria-hidden />
 
       {/* elemen ini yang memberi tinggi halaman; isinya tetap di posisi fixed */}
-      <div className="track" style={{ height: `${unitsTotal * 100}vh` }} aria-hidden />
+      <div
+        className="track"
+        style={{ height: `${unitsTotal * PER_CHAPTER_VH}vh` }}
+        aria-hidden
+      />
 
       <Overlay />
 

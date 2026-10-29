@@ -304,7 +304,10 @@ body.planet-drag {
   .ch--studio {
     align-items: flex-start;
     overflow-y: auto;
-    overscroll-behavior: contain;
+    /* dulu `contain`: setelah isi bab habis, gulir berhenti di situ dan
+       pengunjung tidak bisa lanjut ke bab berikutnya. Sekarang gulir
+       diteruskan ke halaman begitu kontennya sampai ujung. */
+    overscroll-behavior: auto;
   }
 
   .ch--studio .ch__inner {
@@ -1155,6 +1158,33 @@ body.planet-drag {
 
   .ch__meta {
     gap: 6px;
+  }
+
+  /* Manifesto di ponsel: empat kelompok keahlian ditumpuk membuat bab ini
+     lebih tinggi dari satu layar. Dua kolom memangkasnya supaya pengunjung
+     tidak perlu menggulir isi bab dulu sebelum bisa lanjut. */
+  .ch--studio {
+    padding-top: 96px;
+  }
+
+  .ch--studio .caps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 16px;
+  }
+
+  .ch--studio .caps__list li {
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+
+  .ch--studio .caps__list {
+    gap: 2px;
+  }
+
+  /* bar bawah tetap di tempatnya sementara isi bab digulir: beri ruang agar
+     baris terakhir tidak tertutup nomor bab */
+  .ch--studio .ch__inner {
+    padding-bottom: 96px;
   }
 }
 
