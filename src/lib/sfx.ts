@@ -199,6 +199,28 @@ function boot() {
   air.start()
 
   if (ac.state === 'suspended') void ac.resume()
+
+  // Sebagian browser ponsel (iOS Safari, WebView Instagram/WhatsApp) menolak
+  // audio saat `pointerdown` dan baru membukanya di touchend/click. Dengarkan
+  // gestur nyata sampai context benar-benar `running`, supaya audio tidak
+  // pernah "bangun" terlambat di tengah intro.
+  if (ac.state !== 'running') {
+    const unlock = () => {
+      if (!ctx) return
+      if (ctx.state === 'suspended') void ctx.resume()
+      if (ctx.state === 'running') {
+        window.removeEventListener('touchend', unlock)
+        window.removeEventListener('pointerup', unlock)
+        window.removeEventListener('click', unlock)
+        window.removeEventListener('keydown', unlock)
+      }
+    }
+    const opts: AddEventListenerOptions = { passive: true }
+    window.addEventListener('touchend', unlock, opts)
+    window.addEventListener('pointerup', unlock, opts)
+    window.addEventListener('click', unlock, opts)
+    window.addEventListener('keydown', unlock, opts)
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -331,8 +353,15 @@ export function initSfx() {
   if (booted || typeof window === 'undefined') return
   booted = true
 
+  // Panaskan AudioContext sejak awal (tetap `suspended` sampai gestur).
+  // Kalau baru dibuat saat tombol Enter ditekan, sebagian ponsel butuh
+  // beberapa detik untuk menyalakan jalur audionya — wind jadi telat.
+  if (enabled) boot()
+
   const start = () => {
-    if (enabled) boot()
+    if (!enabled) return
+    boot()
+    if (ctx?.state === 'suspended') void ctx.resume()
   }
   const opts: AddEventListenerOptions = { once: true, passive: true }
   window.addEventListener('pointerdown', start, opts)
@@ -386,20 +415,39 @@ export function ensureSfx(): Promise<void> {
 
   return new Promise((resolve) => {
     let done = false
+    const cleanup = () => {
+      ac.removeEventListener('statechange', onChange)
+      window.removeEventListener('touchend', unlock)
+      window.removeEventListener('pointerup', unlock)
+      window.removeEventListener('click', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
     const finish = () => {
       if (done) return
       done = true
-      ac.removeEventListener('statechange', onChange)
+      cleanup()
       resolve()
+    }
+    const unlock = () => {
+      if (ac.state === 'suspended') void ac.resume()
+      if (ac.state === 'running') finish()
     }
     const onChange = () => {
       if (ac.state === 'running') finish()
     }
+
     ac.addEventListener('statechange', onChange)
-    void ac.resume().then(() => {
-      if (ac.state === 'running') finish()
-    })
-    window.setTimeout(finish, 400)
+    // Safari/iOS kadang belum mengizinkan audio saat `pointerdown`; ia baru
+    // terbuka di touchend/click. Karena itu `enter` dipicu di pointerdown,
+    // tapi audio diberi kesempatan menyusul lewat gestur yang sama.
+    const opts: AddEventListenerOptions = { passive: true }
+    window.addEventListener('touchend', unlock, opts)
+    window.addEventListener('pointerup', unlock, opts)
+    window.addEventListener('click', unlock, opts)
+    window.addEventListener('keydown', unlock, opts)
+    void ac.resume().then(unlock)
+    // Jangan menahan animasi lebih lama dari satu kedipan hitam pembuka.
+    window.setTimeout(finish, 900)
   })
 }
 

@@ -99,6 +99,12 @@ export default function App() {
 
   const instant = reduced && !forceMotion
 
+  // Pilihan "gerak penuh" juga harus menimpa aturan CSS reduced-motion
+  // (mengetik per huruf, lensa air, transisi loader) — bukan hanya JS.
+  useEffect(() => {
+    document.documentElement.dataset.motion = forceMotion ? 'full' : 'system'
+  }, [forceMotion])
+
   /* ---- selalu mulai dari atas (browser suka memulihkan posisi) ------ */
   useEffect(() => {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual'

@@ -1820,3 +1820,26 @@ body.planet-drag {
     display: inline;
   }
 }
+
+/* Pengunjung yang menekan "gerak penuh" di banner memilih animasi penuh,
+   jadi aturan reduced-motion di atas dilewati untuknya. Tanpa ini, JS
+   menjalankan intro + mengetik, tetapi CSS tetap menampilkan semua huruf
+   sekaligus sehingga animasinya tidak terlihat. */
+html[data-motion='full'] .ch.is-typing .lq-c {
+  opacity: 0;
+  transition: none;
+}
+
+html[data-motion='full'] .ch.is-typing .lq-c.is-in {
+  opacity: 1;
+  transition: opacity 0.16s linear;
+}
+
+html[data-motion='full'] .lq,
+html[data-motion='full'] .lq-c {
+  display: inline-block;
+}
+
+html[data-motion='full'] .lens {
+  display: block;
+}
